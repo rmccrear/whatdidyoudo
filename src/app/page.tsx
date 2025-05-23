@@ -7,28 +7,15 @@ import Header from '../components/Header';
 import { useSession } from 'next-auth/react';
 import GlobalSearch from '../components/GlobalSearch';
 import PersonalSearch from '../components/PersonalSearch';
-
-interface Progress {
-  stage: 'checking-type' | 'finding-repos' | 'fetching-commits' | 'fetching-issues';
-  reposFound?: number;
-  reposProcessed?: number;
-  totalRepos?: number;
-  message?: string;
-}
-
-interface IssueOrPR {
-  id: number;
-  title: string;
-  number: number;
-  state: string;
-  createdAt: string;
-  updatedAt: string;
-  url: string;
-  repository: {
-    nameWithOwner: string;
-  };
-  type: 'issue' | 'pr';
-}
+import { 
+  checkIfOrganization, 
+  fetchOrganizationRepos, 
+  fetchUserRepos, 
+  fetchIssuesAndPRs,
+  verifyUserExists,
+  type IssueOrPR,
+  type Progress
+} from "../lib/github-api";
 
 export default function HomePage() {
   const { data: session } = useSession();
@@ -170,275 +157,6 @@ export default function HomePage() {
     f().catch(console.error);
   }, []);
 
-  async function checkIfOrganization(name: string): Promise<boolean> {
-    setProgress({ stage: 'checking-type' });
-    try {
-      const response = await fetch(`https://api.github.com/orgs/${name}`);
-      return response.ok;
-    } catch {
-      return false;
-    }
-  }
-
-  async function fetchOrganizationRepos(orgName: string, since: string): Promise<string[]> {
-    const repoSet = new Set<string>();
-    let page = 1;
-    let hasMore = true;
-
-    setProgress({ stage: 'finding-repos', reposFound: 0 });
-
-    while (hasMore) {
-      const response = await fetch(
-        `https://api.github.com/orgs/${orgName}/repos?type=all&sort=pushed&direction=desc&per_page=100&page=${page}`,
-        {
-          headers: {
-            ...(session?.accessToken && {
-              Authorization: `Bearer ${session.accessToken}`,
-            }),
-          },
-        }
-      );
-
-      if (!response.ok) {
-        break;
-      }
-
-      const repos = await response.json();
-      if (repos.length === 0) {
-        hasMore = false;
-        break;
-      }
-
-      repos.forEach((repo: any) => {
-        if (new Date(repo.pushed_at) >= new Date(since)) {
-          repoSet.add(repo.full_name);
-          setProgress(prev => prev?.stage === 'finding-repos'
-            ? { ...prev, reposFound: repoSet.size }
-            : prev
-          );
-        }
-      });
-
-      page++;
-    }
-
-    return Array.from(repoSet);
-  }
-
-  async function fetchUserRepos(username: string, since: string): Promise<string[]> {
-    const repoSet = new Set<string>();
-    setProgress({ stage: 'finding-repos', reposFound: 0 });
-
-    // First try the events API to get recent activity
-    const eventsResponse = await fetch(
-      `https://api.github.com/users/${username}/events/public`,
-      {
-        headers: {
-          ...(session?.accessToken && {
-            Authorization: `Bearer ${session.accessToken}`,
-          }),
-        },
-      }
-    );
-
-    if (!eventsResponse.ok) {
-      throw new Error(`GitHub API error: ${eventsResponse.statusText}`);
-    }
-
-    const events = await eventsResponse.json();
-
-    // Get repos from push events
-    events.forEach((event: any) => {
-      if (event.repo) {
-        repoSet.add(event.repo.name);
-        setProgress(prev => prev?.stage === 'finding-repos'
-          ? { ...prev, reposFound: repoSet.size }
-          : prev
-        );
-      }
-    });
-
-    // Also fetch user's repositories to catch any that might not be in recent events
-    const reposResponse = await fetch(
-      `https://api.github.com/users/${username}/repos?sort=pushed&direction=desc`,
-      {
-        headers: {
-          ...(session?.accessToken && {
-            Authorization: `Bearer ${session.accessToken}`,
-          }),
-        },
-      }
-    );
-
-    if (reposResponse.ok) {
-      const repos = await reposResponse.json();
-      repos.forEach((repo: any) => {
-        if (new Date(repo.pushed_at) >= new Date(since)) {
-          repoSet.add(repo.full_name);
-          setProgress(prev => prev?.stage === 'finding-repos'
-            ? { ...prev, reposFound: repoSet.size }
-            : prev
-          );
-        }
-      });
-    }
-
-    // Get repositories the user has contributed to
-    const contributedReposResponse = await fetch(
-      `https://api.github.com/search/commits?q=author:${username}+committer-date:>${since}&sort=committer-date&order=desc&per_page=100`,
-      {
-        headers: {
-          'Accept': 'application/vnd.github.cloak-preview',
-          ...(session?.accessToken && {
-            Authorization: `Bearer ${session.accessToken}`,
-          }),
-        },
-      }
-    );
-
-    if (contributedReposResponse.ok) {
-      const contributedData = await contributedReposResponse.json();
-      contributedData.items?.forEach((item: any) => {
-        if (item.repository) {
-          repoSet.add(item.repository.full_name);
-          setProgress(prev => prev?.stage === 'finding-repos'
-            ? { ...prev, reposFound: repoSet.size }
-            : prev
-          );
-        }
-      });
-    }
-
-    return Array.from(repoSet);
-  }
-
-  async function fetchIssuesAndPRs(fromDate: Date, isOrg: boolean, effectiveUsername: string) {
-    setIssuesAndPRs([]);
-    setProgress(prev => ({ ...prev, stage: 'fetching-issues', message: 'Fetching issues and pull requests...' }));
-    try {
-      if (isOrg) {
-        const query = `org:${effectiveUsername} updated:>=${fromDate.toISOString().split('T')[0]}`;
-        let allItems: any[] = [];
-        let page = 1;
-        let hasMore = true;
-
-        while (hasMore) {
-          const response = await fetch(
-            `https://api.github.com/search/issues?${new URLSearchParams({
-              q: query,
-              sort: 'updated',
-              order: 'desc',
-              per_page: '100',
-              page: page.toString()
-            })}`,
-            {
-              headers: {
-                ...(session?.accessToken && {
-                  Authorization: `Bearer ${session.accessToken}`,
-                }),
-              },
-            }
-          );
-
-          if (!response.ok) {
-            throw new Error(`GitHub API error: ${response.statusText}`);
-          }
-
-          const data = await response.json();
-          allItems = [...allItems, ...(data.items || [])];
-          
-          hasMore = data.items?.length === 100;
-          page++;
-          setProgress(prev => prev?.stage === 'fetching-issues'
-            ? { ...prev, message: `Fetched ${allItems.length} issues/PRs...` }
-            : prev
-          );
-        }
-
-        setIssuesAndPRs(transformIssuesData(allItems));
-        return;
-      }
-
-      let allItems: any[] = [];
-      let page = 1;
-      let hasMore = true;
-
-      while (hasMore) {
-        const response = await fetch(
-          `https://api.github.com/search/issues?${new URLSearchParams({
-            q: `author:${effectiveUsername} created:>=${fromDate.toISOString().split('T')[0]}`,
-            sort: 'created',
-            order: 'desc',
-            per_page: '100',
-            page: page.toString()
-          })}`,
-          {
-            headers: {
-              ...(session?.accessToken && {
-                Authorization: `Bearer ${session.accessToken}`,
-              }),
-            },
-          }
-        );
-
-        if (!response.ok) {
-          throw new Error(`GitHub API error: ${response.statusText}`);
-        }
-
-        const data = await response.json();
-        allItems = [...allItems, ...data.items];
-        
-        hasMore = data.items?.length === 100;
-        page++;
-        setProgress(prev => prev?.stage === 'fetching-issues'
-          ? { ...prev, message: `Fetched ${allItems.length} issues/PRs...` }
-          : prev
-        );
-      }
-
-      setIssuesAndPRs(transformIssuesData(allItems));
-    } finally {
-      setProgress(prev => prev?.stage === 'fetching-issues' ? null : prev);
-    }
-  }
-
-
-  function transformIssuesData(items: any[]): IssueOrPR[] {
-    return items.map((item: any) => {
-      let repoName = 'unknown';
-      if (item.repository?.full_name) {
-        repoName = item.repository.full_name;
-      } else if (item.repository_url) {
-        repoName = item.repository_url.replace('https://api.github.com/repos/', '');
-      } else if (item.url) {
-        const matches = item.url.match(/https:\/\/api\.github\.com\/repos\/([^/]+\/[^/]+)/);
-        if (matches) {
-          repoName = matches[1];
-        }
-      }
-
-      const isPR = Boolean(
-        item.pull_request ||
-        item.url?.includes('/pulls/') ||
-        item.html_url?.includes('/pull/')
-      );
-
-      return {
-        id: item.id,
-        title: item.title,
-        number: item.number,
-        state: item.state,
-        createdAt: item.created_at,
-        updatedAt: item.updated_at,
-        url: item.html_url,
-        repository: {
-          nameWithOwner: repoName
-        },
-        type: isPR ? 'pr' : 'issue'
-      };
-    });
-  }
-
   async function fetchCommits(searchUsername?: string) {
     const effectiveUsername = searchUsername || username;
     if (!effectiveUsername) {
@@ -472,8 +190,8 @@ export default function HomePage() {
       }
       setLastRequestTime(now);
 
-      const userResponse = await fetch(`https://api.github.com/users/${effectiveUsername}`);
-      if (!userResponse.ok) {
+      const userExists = await verifyUserExists(effectiveUsername, session?.accessToken);
+      if (!userExists) {
         throw new Error(`User or organization "${effectiveUsername}" does not exist on GitHub`);
       }
     } catch (err) {
@@ -491,7 +209,7 @@ export default function HomePage() {
     }
 
     try {
-      const isOrg = await checkIfOrganization(effectiveUsername);
+      const isOrg = await checkIfOrganization(effectiveUsername, session?.accessToken);
       setIsOrganization(isOrg);
 
       const now = new Date();
@@ -515,9 +233,10 @@ export default function HomePage() {
           break;
       }
 
+      setProgress({ stage: 'finding-repos' });
       const repos = isOrg
-        ? await fetchOrganizationRepos(effectiveUsername, fromDate.toISOString())
-        : await fetchUserRepos(effectiveUsername, fromDate.toISOString());
+        ? await fetchOrganizationRepos(effectiveUsername, fromDate.toISOString(), session?.accessToken)
+        : await fetchUserRepos(effectiveUsername, fromDate.toISOString(), session?.accessToken);
 
       if (repos.length === 0) {
         setError(`No repositories with recent activity found for ${isOrg ? 'organization' : 'user'} "${effectiveUsername}"`);
@@ -602,7 +321,8 @@ export default function HomePage() {
       });
 
       try {
-        await fetchIssuesAndPRs(fromDate, isOrg, effectiveUsername);
+        const issues = await fetchIssuesAndPRs(effectiveUsername, fromDate, isOrg, session?.accessToken);
+        setIssuesAndPRs(issues);
       } catch (err) {
         console.error('Error fetching issues and PRs:', err);
         setIssuesAndPRs([]);
