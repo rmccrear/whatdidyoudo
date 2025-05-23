@@ -44,6 +44,8 @@ export default function HomePage() {
   const [isOrganization, setIsOrganization] = useState<boolean | null>(null);
   const [progress, setProgress] = useState<Progress | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
+  const [usedPersonalSearch, setUsedPersonalSearch] = useState(false);
+  const [usedGlobalSearch, setUsedGlobalSearch] = useState(false);
   const [summary, setSummary] = useState("");
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryError, setSummaryError] = useState("");
@@ -819,6 +821,8 @@ export default function HomePage() {
     setIsOrganization(null);
     setProgress(null);
     setHasSearched(false);
+    setUsedPersonalSearch(false);
+    setUsedGlobalSearch(false);
     setSummary("");
   };
 
@@ -843,31 +847,36 @@ export default function HomePage() {
 
         {!hasSearched || loading ? (
           <>
-            <GlobalSearch
-              username={username}
-              setUsername={setUsername}
-              timeframe={timeframe}
-              setTimeframe={setTimeframe}
-              customDays={customDays}
-              setCustomDays={setCustomDays}
-              loading={loading}
-              onSearch={() => {
-                if (username) {
-                  fetchCommits(username);
-                }
-              }}
-              resetState={resetState}
-            />
-            {session?.user?.login && (
+            {!usedPersonalSearch && (
+              <GlobalSearch
+                username={username}
+                setUsername={setUsername}
+                timeframe={timeframe}
+                setTimeframe={setTimeframe}
+                customDays={customDays}
+                setCustomDays={setCustomDays}
+                loading={loading}
+                onSearch={() => {
+                  if (username) {
+                    setUsedGlobalSearch(true);
+                    fetchCommits(username);
+                  }
+                }}
+                resetState={resetState}
+              />
+            )}
+            {session?.user?.login && !usedGlobalSearch && (
               <>
-                <div className="relative my-8">
-                  <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-gray-300"></div>
+                {!usedPersonalSearch && (
+                  <div className="relative my-8">
+                    <div className="absolute inset-0 flex items-center">
+                      <div className="w-full border-t border-gray-300"></div>
+                    </div>
+                    <div className="relative flex justify-center">
+                      <span className="bg-white px-4 text-sm text-gray-500">or search your own activity</span>
+                    </div>
                   </div>
-                  <div className="relative flex justify-center">
-                    <span className="bg-white px-4 text-sm text-gray-500">or search your own activity</span>
-                  </div>
-                </div>
+                )}
                 <PersonalSearch
                   username={session.user.login}
                   timeframe={timeframe}
@@ -879,6 +888,7 @@ export default function HomePage() {
                     const userLogin = session?.user?.login;
                     if (userLogin) {
                       setUsername(userLogin);
+                      setUsedPersonalSearch(true);
                       setTimeout(() => fetchCommits(userLogin), 0);
                     }
                   }}
