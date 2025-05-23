@@ -5,6 +5,7 @@ import { EnrichedCommit } from "../lib/github";
 import ReactMarkdown from 'react-markdown';
 import Header from '../components/Header';
 import { useSession } from 'next-auth/react';
+import GlobalSearch from '../components/GlobalSearch';
 
 interface Progress {
   stage: 'checking-type' | 'finding-repos' | 'fetching-commits' | 'fetching-issues';
@@ -810,6 +811,15 @@ export default function HomePage() {
     setCurrentPage(1);
   };
 
+  const resetState = () => {
+    setCommits({ defaultBranch: [], otherBranches: [] });
+    setIssuesAndPRs([]);
+    setIsOrganization(null);
+    setProgress(null);
+    setHasSearched(false);
+    setSummary("");
+  };
+
   return (
     <main className="flex min-h-screen flex-col items-center bg-black p-8 text-white">
       <Header />
@@ -822,89 +832,17 @@ export default function HomePage() {
           )}
         </h1>
 
-        <div className="mb-8 flex flex-col gap-4 sm:flex-row">
-          <input
-            type="text"
-            value={username}
-            onChange={(e) => {
-              setUsername(e.target.value);
-              setCommits({ defaultBranch: [], otherBranches: [] });
-              setIssuesAndPRs([]);
-              setIsOrganization(null);
-              setProgress(null);
-              setHasSearched(false);
-              setSummary("");
-              window.history.pushState(null, '', '/');
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                window.history.pushState(null, '', '/');
-                fetchCommits();
-              }
-            }}
-            placeholder="GitHub username or organization"
-            className="flex-1 rounded-lg bg-white/10 px-4 py-2 text-white placeholder:text-white/50 focus:outline-none"
-          />
-
-          <select
-            value={timeframe}
-            onChange={(e) => {
-              const newTimeframe = e.target.value;
-              setTimeframe(newTimeframe);
-              setCommits({ defaultBranch: [], otherBranches: [] });
-              setIssuesAndPRs([]);
-              setSummary("");
-              setHasSearched(false);
-              window.history.pushState(null, '', '/');
-            }}
-            className="rounded-lg bg-white/10 px-4 py-2 text-white focus:outline-none"
-          >
-            <option value="24h">Last 24 Hours</option>
-            <option value="week">Past Week</option>
-            <option value="month">Past Month</option>
-            <option value="year">Past Year</option>
-            <option value="custom">Custom Days</option>
-          </select>
-
-          {timeframe === "custom" && (
-            <input
-              type="number"
-              value={customDays}
-              onChange={(e) => {
-                const value = e.target.value;
-                if (!value || (Number(value) >= 1 && Number(value) <= 1000)) {
-                  setCustomDays(value);
-                  setCommits({ defaultBranch: [], otherBranches: [] });
-                  setIssuesAndPRs([]);
-                  setSummary("");
-                  setHasSearched(false);
-                  window.history.pushState(null, '', '/');
-                }
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  window.history.pushState(null, '', '/');
-                  fetchCommits();
-                }
-              }}
-              min="1"
-              max="1000"
-              placeholder="Number of days (1-1000)"
-              className="w-32 rounded-lg bg-white/10 px-4 py-2 text-white focus:outline-none"
-            />
-          )}
-
-          <button
-            onClick={() => {
-              window.history.pushState(null, '', '/');
-              fetchCommits();
-            }}
-            disabled={loading}
-            className="rounded-lg bg-white/20 px-6 py-2 font-semibold hover:bg-white/30 disabled:opacity-50 focus:outline-none"
-          >
-            {loading ? "Loading..." : "Search"}
-          </button>
-        </div>
+        <GlobalSearch
+          username={username}
+          setUsername={setUsername}
+          timeframe={timeframe}
+          setTimeframe={setTimeframe}
+          customDays={customDays}
+          setCustomDays={setCustomDays}
+          loading={loading}
+          onSearch={fetchCommits}
+          resetState={resetState}
+        />
 
         {error && (
           <div className="mb-4 rounded-lg bg-red-500/20 p-4 text-red-200">
