@@ -20,6 +20,7 @@ import {
   fetchUserContributions,
   fetchUserProfile,
 } from "../lib/github-oauth";
+import PrivateRepoWarningDialog from '../components/PrivateRepoWarningDialog';
 
 export default function HomePage() {
   const { data: session } = useSession();
@@ -51,6 +52,8 @@ export default function HomePage() {
   const [shareUrl, setShareUrl] = useState<string>("");
   const [showNotification, setShowNotification] = useState(false);
   const [lastRequestTime, setLastRequestTime] = useState<number | null>(null);
+  const [showPrivateRepoWarning, setShowPrivateRepoWarning] = useState(false);
+  const [pendingShareAction, setPendingShareAction] = useState<'export' | 'twitter' | null>(null);
 
   const allCommits = useMemo(() => {
     const commitMap = new Map<string, EnrichedCommit>();
@@ -557,6 +560,24 @@ export default function HomePage() {
   }
 
   async function handleExport() {
+    if (includePrivate) {
+      setShowPrivateRepoWarning(true);
+      setPendingShareAction('export');
+      return;
+    }
+    await performExport();
+  }
+
+  async function handleTwitterShare() {
+    if (includePrivate) {
+      setShowPrivateRepoWarning(true);
+      setPendingShareAction('twitter');
+      return;
+    }
+    await performTwitterShare();
+  }
+
+  async function performExport() {
     const url = await exportActivity(false);
     if (url) {
       try {
@@ -571,7 +592,7 @@ export default function HomePage() {
     }
   }
 
-  async function handleTwitterShare() {
+  async function performTwitterShare() {
     const url = await exportActivity(false);
     if (url) {
       window.open(
@@ -580,6 +601,16 @@ export default function HomePage() {
       );
       setExportError("");
     }
+  }
+
+  async function handlePrivateRepoWarningConfirm() {
+    setShowPrivateRepoWarning(false);
+    if (pendingShareAction === 'export') {
+      await performExport();
+    } else if (pendingShareAction === 'twitter') {
+      await performTwitterShare();
+    }
+    setPendingShareAction(null);
   }
 
   const handleTypeToggle = (type: 'commit' | 'issue' | 'pr') => {
@@ -1046,6 +1077,16 @@ export default function HomePage() {
           </>
         )}
       </div>
+
+      {showPrivateRepoWarning && (
+        <PrivateRepoWarningDialog
+          onConfirm={handlePrivateRepoWarningConfirm}
+          onCancel={() => {
+            setShowPrivateRepoWarning(false);
+            setPendingShareAction(null);
+          }}
+        />
+      )}
     </main>
   );
 }
