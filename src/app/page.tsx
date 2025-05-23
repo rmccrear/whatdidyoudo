@@ -6,6 +6,7 @@ import ReactMarkdown from 'react-markdown';
 import Header from '../components/Header';
 import { useSession } from 'next-auth/react';
 import GlobalSearch from '../components/GlobalSearch';
+import PersonalSearch from '../components/PersonalSearch';
 
 interface Progress {
   stage: 'checking-type' | 'finding-repos' | 'fetching-commits' | 'fetching-issues';
@@ -833,17 +834,43 @@ export default function HomePage() {
         </h1>
 
         {!hasSearched || loading ? (
-          <GlobalSearch
-            username={username}
-            setUsername={setUsername}
-            timeframe={timeframe}
-            setTimeframe={setTimeframe}
-            customDays={customDays}
-            setCustomDays={setCustomDays}
-            loading={loading}
-            onSearch={fetchCommits}
-            resetState={resetState}
-          />
+          <>
+            <GlobalSearch
+              username={username}
+              setUsername={setUsername}
+              timeframe={timeframe}
+              setTimeframe={setTimeframe}
+              customDays={customDays}
+              setCustomDays={setCustomDays}
+              loading={loading}
+              onSearch={fetchCommits}
+              resetState={resetState}
+            />
+            {session?.user?.name && (
+              <>
+                <div className="mb-8 flex items-center">
+                  <div className="flex-grow border-t border-white/10"></div>
+                  <span className="mx-4 text-sm text-white/50">or search your own activity</span>
+                  <div className="flex-grow border-t border-white/10"></div>
+                </div>
+                <PersonalSearch
+                  username={session.user.name}
+                  timeframe={timeframe}
+                  setTimeframe={setTimeframe}
+                  customDays={customDays}
+                  setCustomDays={setCustomDays}
+                  loading={loading}
+                  onSearch={() => {
+                    if (session.user?.name) {
+                      setUsername(session.user.name);
+                      fetchCommits();
+                    }
+                  }}
+                  resetState={resetState}
+                />
+              </>
+            )}
+          </>
         ) : (
           <div className="mb-8 flex justify-center">
             <button
