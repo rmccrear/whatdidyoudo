@@ -821,6 +821,13 @@ export default function HomePage() {
     setSummary("");
   };
 
+  // Log complete session user data
+  useEffect(() => {
+    if (session?.user) {
+      console.log('Session User Data:', session.user);
+    }
+  }, [session]);
+
   return (
     <main className="flex min-h-screen flex-col items-center bg-black p-8 text-white">
       <Header />
@@ -846,23 +853,26 @@ export default function HomePage() {
               onSearch={fetchCommits}
               resetState={resetState}
             />
-            {session?.user?.name && (
+            {session?.user?.login && (
               <>
-                <div className="mb-8 flex items-center">
-                  <div className="flex-grow border-t border-white/10"></div>
-                  <span className="mx-4 text-sm text-white/50">or search your own activity</span>
-                  <div className="flex-grow border-t border-white/10"></div>
+                <div className="relative my-8">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-gray-300"></div>
+                  </div>
+                  <div className="relative flex justify-center">
+                    <span className="bg-white px-4 text-sm text-gray-500">or search your own activity</span>
+                  </div>
                 </div>
                 <PersonalSearch
-                  username={session.user.name}
+                  username={session.user.login}
                   timeframe={timeframe}
                   setTimeframe={setTimeframe}
                   customDays={customDays}
                   setCustomDays={setCustomDays}
                   loading={loading}
                   onSearch={() => {
-                    if (session.user?.name) {
-                      setUsername(session.user.name);
+                    if (session.user?.login) {
+                      setUsername(session.user.login);
                       fetchCommits();
                     }
                   }}
