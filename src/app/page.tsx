@@ -832,17 +832,33 @@ export default function HomePage() {
           )}
         </h1>
 
-        <GlobalSearch
-          username={username}
-          setUsername={setUsername}
-          timeframe={timeframe}
-          setTimeframe={setTimeframe}
-          customDays={customDays}
-          setCustomDays={setCustomDays}
-          loading={loading}
-          onSearch={fetchCommits}
-          resetState={resetState}
-        />
+        {!hasSearched || loading ? (
+          <GlobalSearch
+            username={username}
+            setUsername={setUsername}
+            timeframe={timeframe}
+            setTimeframe={setTimeframe}
+            customDays={customDays}
+            setCustomDays={setCustomDays}
+            loading={loading}
+            onSearch={fetchCommits}
+            resetState={resetState}
+          />
+        ) : (
+          <div className="mb-8 flex justify-center">
+            <button
+              onClick={() => {
+                resetState();
+                setUsername('');
+                setTimeframe('week');
+                setCustomDays('1');
+              }}
+              className="rounded-lg bg-white/20 px-6 py-2 font-semibold hover:bg-white/30 focus:outline-none"
+            >
+              New Search
+            </button>
+          </div>
+        )}
 
         {error && (
           <div className="mb-4 rounded-lg bg-red-500/20 p-4 text-red-200">
