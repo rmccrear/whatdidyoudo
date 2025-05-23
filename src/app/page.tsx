@@ -16,6 +16,10 @@ import {
   type IssueOrPR,
   type Progress
 } from "../lib/github-api";
+import {
+  fetchUserContributions,
+  fetchUserProfile,
+} from "../lib/github-oauth";
 
 export default function HomePage() {
   const { data: session } = useSession();
@@ -190,46 +194,85 @@ export default function HomePage() {
       }
       setLastRequestTime(now);
 
+      // If user is logged in and searching for their own activity, use OAuth functions
+      if (session?.accessToken && effectiveUsername === session.user?.login) {
+        const fromDate = new Date();
+
+        switch (timeframe) {
+          case "24h":
+            fromDate.setHours(fromDate.getHours() - 24);
+            break;
+          case "week":
+            fromDate.setDate(fromDate.getDate() - 7);
+            break;
+          case "month":
+            fromDate.setMonth(fromDate.getMonth() - 1);
+            break;
+          case "year":
+            fromDate.setFullYear(fromDate.getFullYear() - 1);
+            break;
+          case "custom":
+            fromDate.setDate(fromDate.getDate() - Number(customDays));
+            break;
+        }
+
+        setProgress({ stage: 'finding-repos' });
+        const response = await fetchUserContributions(session.accessToken, fromDate.toISOString());
+
+        if (response.error) {
+          throw new Error(response.error);
+        }
+
+        const { commits, issues, repositories } = response.data;
+
+        if (repositories.length === 0) {
+          setError("No repositories with recent activity found");
+          return;
+        }
+
+        setCommits({
+          defaultBranch: commits,
+          otherBranches: [],
+        });
+        setIssuesAndPRs(issues);
+        setIsOrganization(false);
+
+        if (commits.length > 0) {
+          setProgress(null);
+          await generateSummary(commits, effectiveUsername);
+        }
+
+        setLoading(false);
+        setProgress(null);
+        return;
+      }
+
+      // For non-OAuth requests, continue with existing flow
       const userExists = await verifyUserExists(effectiveUsername, session?.accessToken);
       if (!userExists) {
         throw new Error(`User or organization "${effectiveUsername}" does not exist on GitHub`);
       }
-    } catch (err) {
-      setError("Failed to verify username existence");
-      setLoading(false);
-      return;
-    }
 
-    const effectiveTimeframe = timeframe;
-
-    if (effectiveTimeframe === "custom" && (isNaN(Number(customDays)) || Number(customDays) < 1)) {
-      setError("Please enter a valid number of days (minimum 1)");
-      setLoading(false);
-      return;
-    }
-
-    try {
       const isOrg = await checkIfOrganization(effectiveUsername, session?.accessToken);
       setIsOrganization(isOrg);
 
-      const now = new Date();
       const fromDate = new Date();
 
-      switch (effectiveTimeframe) {
+      switch (timeframe) {
         case "24h":
-          fromDate.setHours(now.getHours() - 24);
+          fromDate.setHours(fromDate.getHours() - 24);
           break;
         case "week":
-          fromDate.setDate(now.getDate() - 7);
+          fromDate.setDate(fromDate.getDate() - 7);
           break;
         case "month":
-          fromDate.setMonth(now.getMonth() - 1);
+          fromDate.setMonth(fromDate.getMonth() - 1);
           break;
         case "year":
-          fromDate.setFullYear(now.getFullYear() - 1);
+          fromDate.setFullYear(fromDate.getFullYear() - 1);
           break;
         case "custom":
-          fromDate.setDate(now.getDate() - Number(customDays));
+          fromDate.setDate(fromDate.getDate() - Number(customDays));
           break;
       }
 
