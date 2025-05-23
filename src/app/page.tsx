@@ -3,6 +3,8 @@
 import { useState, useMemo, useEffect } from "react";
 import { EnrichedCommit } from "../lib/github";
 import ReactMarkdown from 'react-markdown';
+import Header from '../components/Header';
+import { useSession } from 'next-auth/react';
 
 interface Progress {
   stage: 'checking-type' | 'finding-repos' | 'fetching-commits' | 'fetching-issues';
@@ -27,6 +29,7 @@ interface IssueOrPR {
 }
 
 export default function HomePage() {
+  const { data: session } = useSession();
   const [username, setUsername] = useState("");
   const [timeframe, setTimeframe] = useState("week");
   const [customDays, setCustomDays] = useState("1");
@@ -182,7 +185,14 @@ export default function HomePage() {
 
     while (hasMore) {
       const response = await fetch(
-        `https://api.github.com/orgs/${orgName}/repos?type=all&sort=pushed&direction=desc&per_page=100&page=${page}`
+        `https://api.github.com/orgs/${orgName}/repos?type=all&sort=pushed&direction=desc&per_page=100&page=${page}`,
+        {
+          headers: {
+            ...(session?.accessToken && {
+              Authorization: `Bearer ${session.accessToken}`,
+            }),
+          },
+        }
       );
 
       if (!response.ok) {
@@ -217,7 +227,14 @@ export default function HomePage() {
 
     // First try the events API to get recent activity
     const eventsResponse = await fetch(
-      `https://api.github.com/users/${username}/events/public`
+      `https://api.github.com/users/${username}/events/public`,
+      {
+        headers: {
+          ...(session?.accessToken && {
+            Authorization: `Bearer ${session.accessToken}`,
+          }),
+        },
+      }
     );
 
     if (!eventsResponse.ok) {
@@ -239,7 +256,14 @@ export default function HomePage() {
 
     // Also fetch user's repositories to catch any that might not be in recent events
     const reposResponse = await fetch(
-      `https://api.github.com/users/${username}/repos?sort=pushed&direction=desc`
+      `https://api.github.com/users/${username}/repos?sort=pushed&direction=desc`,
+      {
+        headers: {
+          ...(session?.accessToken && {
+            Authorization: `Bearer ${session.accessToken}`,
+          }),
+        },
+      }
     );
 
     if (reposResponse.ok) {
@@ -260,8 +284,11 @@ export default function HomePage() {
       `https://api.github.com/search/commits?q=author:${username}+committer-date:>${since}&sort=committer-date&order=desc&per_page=100`,
       {
         headers: {
-          'Accept': 'application/vnd.github.cloak-preview'
-        }
+          'Accept': 'application/vnd.github.cloak-preview',
+          ...(session?.accessToken && {
+            Authorization: `Bearer ${session.accessToken}`,
+          }),
+        },
       }
     );
 
@@ -299,7 +326,14 @@ export default function HomePage() {
               order: 'desc',
               per_page: '100',
               page: page.toString()
-            })}`
+            })}`,
+            {
+              headers: {
+                ...(session?.accessToken && {
+                  Authorization: `Bearer ${session.accessToken}`,
+                }),
+              },
+            }
           );
 
           if (!response.ok) {
@@ -333,7 +367,14 @@ export default function HomePage() {
             order: 'desc',
             per_page: '100',
             page: page.toString()
-          })}`
+          })}`,
+          {
+            headers: {
+              ...(session?.accessToken && {
+                Authorization: `Bearer ${session.accessToken}`,
+              }),
+            },
+          }
         );
 
         if (!response.ok) {
@@ -771,6 +812,7 @@ export default function HomePage() {
 
   return (
     <main className="flex min-h-screen flex-col items-center bg-black p-8 text-white">
+      <Header />
       <div className="w-full max-w-4xl">
         <h1 className="mb-8 text-center text-4xl font-bold">
           {username ? (
