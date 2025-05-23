@@ -161,12 +161,12 @@ export default function HomePage() {
         if (urlTimeframe == 'custom' && urlCustomDays) {
           setCustomDays(urlCustomDays)
         }
-        fetchCommits();
+        fetchCommits(urlUsername);
       }
     }
 
     f().catch(console.error);
-  }, [username, timeframe, customDays]);
+  }, []);
 
   async function checkIfOrganization(name: string): Promise<boolean> {
     setProgress({ stage: 'checking-type' });
@@ -310,12 +310,12 @@ export default function HomePage() {
     return Array.from(repoSet);
   }
 
-  async function fetchIssuesAndPRs(fromDate: Date, isOrg: boolean) {
+  async function fetchIssuesAndPRs(fromDate: Date, isOrg: boolean, effectiveUsername: string) {
     setIssuesAndPRs([]);
     setProgress(prev => ({ ...prev, stage: 'fetching-issues', message: 'Fetching issues and pull requests...' }));
     try {
       if (isOrg) {
-        const query = `org:${username} updated:>=${fromDate.toISOString().split('T')[0]}`;
+        const query = `org:${effectiveUsername} updated:>=${fromDate.toISOString().split('T')[0]}`;
         let allItems: any[] = [];
         let page = 1;
         let hasMore = true;
@@ -364,7 +364,7 @@ export default function HomePage() {
       while (hasMore) {
         const response = await fetch(
           `https://api.github.com/search/issues?${new URLSearchParams({
-            q: `author:${username} created:>=${fromDate.toISOString().split('T')[0]}`,
+            q: `author:${effectiveUsername} created:>=${fromDate.toISOString().split('T')[0]}`,
             sort: 'created',
             order: 'desc',
             per_page: '100',
@@ -437,8 +437,9 @@ export default function HomePage() {
     });
   }
 
-  async function fetchCommits() {
-    if (!username) {
+  async function fetchCommits(searchUsername?: string) {
+    const effectiveUsername = searchUsername || username;
+    if (!effectiveUsername) {
       setError("Please enter a GitHub username or organization");
       return;
     }
@@ -469,9 +470,9 @@ export default function HomePage() {
       }
       setLastRequestTime(now);
 
-      const userResponse = await fetch(`https://api.github.com/users/${username}`);
+      const userResponse = await fetch(`https://api.github.com/users/${effectiveUsername}`);
       if (!userResponse.ok) {
-        throw new Error(`User or organization "${username}" does not exist on GitHub`);
+        throw new Error(`User or organization "${effectiveUsername}" does not exist on GitHub`);
       }
     } catch (err) {
       setError("Failed to verify username existence");
@@ -488,7 +489,7 @@ export default function HomePage() {
     }
 
     try {
-      const isOrg = await checkIfOrganization(username);
+      const isOrg = await checkIfOrganization(effectiveUsername);
       setIsOrganization(isOrg);
 
       const now = new Date();
@@ -513,11 +514,11 @@ export default function HomePage() {
       }
 
       const repos = isOrg
-        ? await fetchOrganizationRepos(username, fromDate.toISOString())
-        : await fetchUserRepos(username, fromDate.toISOString());
+        ? await fetchOrganizationRepos(effectiveUsername, fromDate.toISOString())
+        : await fetchUserRepos(effectiveUsername, fromDate.toISOString());
 
       if (repos.length === 0) {
-        setError(`No repositories with recent activity found for ${isOrg ? 'organization' : 'user'} "${username}"`);
+        setError(`No repositories with recent activity found for ${isOrg ? 'organization' : 'user'} "${effectiveUsername}"`);
         return;
       }
 
@@ -530,7 +531,7 @@ export default function HomePage() {
 
       const response = await fetch(
         `/api/commits?${new URLSearchParams({
-          username,
+          username: effectiveUsername,
           from: fromDate.toISOString(),
           repos: JSON.stringify(repos),
           isOrg: isOrg.toString()
@@ -599,7 +600,7 @@ export default function HomePage() {
       });
 
       try {
-        await fetchIssuesAndPRs(fromDate, isOrg);
+        await fetchIssuesAndPRs(fromDate, isOrg, effectiveUsername);
       } catch (err) {
         console.error('Error fetching issues and PRs:', err);
         setIssuesAndPRs([]);
@@ -607,7 +608,7 @@ export default function HomePage() {
 
       if (allLatestCommits.length > 0) {
         setProgress(null);
-        await generateSummary(allLatestCommits);
+        await generateSummary(allLatestCommits, effectiveUsername);
       }
 
     } catch (err) {
@@ -620,7 +621,7 @@ export default function HomePage() {
     }
   }
 
-  async function generateSummary(commits: EnrichedCommit[]) {
+  async function generateSummary(commits: EnrichedCommit[], effectiveUsername: string) {
     setSummaryLoading(true);
     setSummaryError("");
     setSummary("");
@@ -650,7 +651,7 @@ export default function HomePage() {
         body: JSON.stringify({ 
           commits: truncatedItems.filter(item => 'committedDate' in item),
           issuesAndPRs: truncatedItems.filter(item => !('committedDate' in item)),
-          username 
+          username: effectiveUsername
         }),
       });
 
@@ -850,7 +851,11 @@ export default function HomePage() {
               customDays={customDays}
               setCustomDays={setCustomDays}
               loading={loading}
-              onSearch={fetchCommits}
+              onSearch={() => {
+                if (username) {
+                  fetchCommits(username);
+                }
+              }}
               resetState={resetState}
             />
             {session?.user?.login && (
@@ -871,9 +876,10 @@ export default function HomePage() {
                   setCustomDays={setCustomDays}
                   loading={loading}
                   onSearch={() => {
-                    if (session.user?.login) {
-                      setUsername(session.user.login);
-                      fetchCommits();
+                    const userLogin = session?.user?.login;
+                    if (userLogin) {
+                      setUsername(userLogin);
+                      setTimeout(() => fetchCommits(userLogin), 0);
                     }
                   }}
                   resetState={resetState}
