@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect } from "react";
 import { EnrichedCommit } from "../lib/github";
 import ReactMarkdown from 'react-markdown';
 import Header from '../components/Header';
-import { useSession } from 'next-auth/react';
+import { useSession, signOut } from 'next-auth/react';
 import GlobalSearch from '../components/GlobalSearch';
 import PersonalSearch from '../components/PersonalSearch';
 import { 
@@ -26,12 +26,13 @@ export default function HomePage() {
   const [username, setUsername] = useState("");
   const [timeframe, setTimeframe] = useState("week");
   const [customDays, setCustomDays] = useState("1");
+  const [includePrivate, setIncludePrivate] = useState(false);
   const [commits, setCommits] = useState<{
     defaultBranch: EnrichedCommit[];
     otherBranches: EnrichedCommit[];
   }>({ defaultBranch: [], otherBranches: [] });
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<string | React.ReactNode>("");
   const [isOrganization, setIsOrganization] = useState<boolean | null>(null);
   const [progress, setProgress] = useState<Progress | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
@@ -217,10 +218,30 @@ export default function HomePage() {
         }
 
         setProgress({ stage: 'finding-repos' });
-        const response = await fetchUserContributions(session.accessToken, fromDate.toISOString());
+        const response = await fetchUserContributions(session.accessToken, fromDate.toISOString(), includePrivate);
 
         if (response.error) {
-          throw new Error(response.error);
+          if (response.error.includes('additional authorization')) {
+            setError(
+              <div>
+                <p>Private repository access requires additional authorization.</p>
+                <p className="mt-2">
+                  <button
+                    onClick={() => {
+                      signOut({ callbackUrl: '/' });
+                    }}
+                    className="text-blue-400 hover:underline"
+                  >
+                    Sign out and sign in again
+                  </button>
+                  {' '}with the correct permissions.
+                </p>
+              </div>
+            );
+          } else {
+            throw new Error(response.error);
+          }
+          return;
         }
 
         const { commits, issues, repositories } = response.data;
@@ -647,6 +668,8 @@ export default function HomePage() {
                   customDays={customDays}
                   setCustomDays={setCustomDays}
                   loading={loading}
+                  includePrivate={includePrivate}
+                  setIncludePrivate={setIncludePrivate}
                   onSearch={() => {
                     const userLogin = session?.user?.login;
                     if (userLogin) {

@@ -26,7 +26,7 @@ export async function fetchUserProfile(accessToken: string): Promise<GitHubRespo
   }
 }
 
-export async function fetchUserRepos(accessToken: string, since: string): Promise<GitHubResponse<string[]>> {
+export async function fetchUserRepos(accessToken: string, since: string, includePrivate: boolean = false): Promise<GitHubResponse<string[]>> {
   try {
     const repoSet = new Set<string>();
     let page = 1;
@@ -34,7 +34,7 @@ export async function fetchUserRepos(accessToken: string, since: string): Promis
 
     while (hasMore) {
       const response = await fetch(
-        `https://api.github.com/user/repos?sort=pushed&direction=desc&per_page=100&page=${page}`,
+        `https://api.github.com/user/repos?sort=pushed&direction=desc&per_page=100&page=${page}${includePrivate ? '' : '&visibility=public'}`,
         {
           headers: {
             Authorization: `Bearer ${accessToken}`,
@@ -68,7 +68,7 @@ export async function fetchUserRepos(accessToken: string, since: string): Promis
   }
 }
 
-export async function fetchUserCommits(accessToken: string, since: string): Promise<GitHubResponse<EnrichedCommit[]>> {
+export async function fetchUserCommits(accessToken: string, since: string, includePrivate: boolean = false): Promise<GitHubResponse<EnrichedCommit[]>> {
   try {
     const commits: EnrichedCommit[] = [];
     let page = 1;
@@ -81,48 +81,59 @@ export async function fetchUserCommits(accessToken: string, since: string): Prom
     }
     const username = profileResponse.data.login;
 
-    while (hasMore) {
-      const response = await fetch(
-        `https://api.github.com/search/commits?q=author:${username}+committer-date:>${since}&sort=committer-date&order=desc&per_page=100&page=${page}`,
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            Accept: 'application/vnd.github.cloak-preview+json',
-          },
+    // Get all repositories first
+    const reposResponse = await fetchUserRepos(accessToken, since, includePrivate);
+    if (reposResponse.error) {
+      throw new Error(reposResponse.error);
+    }
+
+    // Search commits in each repository
+    for (const repo of reposResponse.data) {
+      while (hasMore) {
+        const response = await fetch(
+          `https://api.github.com/search/commits?q=author:${username}+repo:${repo}+committer-date:>${since}&sort=committer-date&order=desc&per_page=100&page=${page}`,
+          {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              Accept: 'application/vnd.github.cloak-preview+json',
+            },
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error(`GitHub API error: ${response.statusText}`);
         }
-      );
 
-      if (!response.ok) {
-        throw new Error(`GitHub API error: ${response.statusText}`);
-      }
+        const data = await response.json();
+        if (!data.items || data.items.length === 0) {
+          hasMore = false;
+          break;
+        }
 
-      const data = await response.json();
-      if (!data.items || data.items.length === 0) {
-        hasMore = false;
-        break;
-      }
-
-      commits.push(...data.items.map((item: any) => ({
-        oid: item.sha,
-        messageHeadline: item.commit.message.split('\n')[0],
-        messageBody: item.commit.message,
-        committedDate: item.commit.committer.date,
-        additions: item.stats?.additions || 0,
-        deletions: item.stats?.deletions || 0,
-        repository: {
-          nameWithOwner: item.repository.full_name,
-        },
-        branch: item.branch || 'main',
-        author: {
-          user: {
-            login: item.author?.login || item.committer?.login,
+        commits.push(...data.items.map((item: any) => ({
+          oid: item.sha,
+          messageHeadline: item.commit.message.split('\n')[0],
+          messageBody: item.commit.message,
+          committedDate: item.commit.committer.date,
+          additions: item.stats?.additions || 0,
+          deletions: item.stats?.deletions || 0,
+          repository: {
+            nameWithOwner: item.repository.full_name,
           },
-        },
-        url: item.html_url,
-      })));
+          branch: item.branch || 'main',
+          author: {
+            user: {
+              login: item.author?.login || item.committer?.login,
+            },
+          },
+          url: item.html_url,
+        })));
 
-      hasMore = data.items.length === 100;
-      page++;
+        hasMore = data.items.length === 100;
+        page++;
+      }
+      hasMore = true;
+      page = 1;
     }
 
     return { data: commits };
@@ -131,7 +142,7 @@ export async function fetchUserCommits(accessToken: string, since: string): Prom
   }
 }
 
-export async function fetchUserIssuesAndPRs(accessToken: string, since: string): Promise<GitHubResponse<IssueOrPR[]>> {
+export async function fetchUserIssuesAndPRs(accessToken: string, since: string, includePrivate: boolean = false): Promise<GitHubResponse<IssueOrPR[]>> {
   try {
     const issues: IssueOrPR[] = [];
     let page = 1;
@@ -144,43 +155,54 @@ export async function fetchUserIssuesAndPRs(accessToken: string, since: string):
     }
     const username = profileResponse.data.login;
 
-    while (hasMore) {
-      const response = await fetch(
-        `https://api.github.com/search/issues?q=author:${username}+created:>=${since}&sort=created&order=desc&per_page=100&page=${page}`,
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            Accept: 'application/vnd.github.v3+json',
-          },
+    // Get all repositories first
+    const reposResponse = await fetchUserRepos(accessToken, since, includePrivate);
+    if (reposResponse.error) {
+      throw new Error(reposResponse.error);
+    }
+
+    // Search issues in each repository
+    for (const repo of reposResponse.data) {
+      while (hasMore) {
+        const response = await fetch(
+          `https://api.github.com/search/issues?q=author:${username}+repo:${repo}+created:>=${since}&sort=created&order=desc&per_page=100&page=${page}`,
+          {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              Accept: 'application/vnd.github.v3+json',
+            },
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error(`GitHub API error: ${response.statusText}`);
         }
-      );
 
-      if (!response.ok) {
-        throw new Error(`GitHub API error: ${response.statusText}`);
+        const data = await response.json();
+        if (!data.items || data.items.length === 0) {
+          hasMore = false;
+          break;
+        }
+
+        issues.push(...data.items.map((item: any) => ({
+          id: item.id,
+          title: item.title,
+          number: item.number,
+          state: item.state,
+          createdAt: item.created_at,
+          updatedAt: item.updated_at,
+          url: item.html_url,
+          repository: {
+            nameWithOwner: item.repository.full_name,
+          },
+          type: item.pull_request ? 'pr' : 'issue',
+        })));
+
+        hasMore = data.items.length === 100;
+        page++;
       }
-
-      const data = await response.json();
-      if (!data.items || data.items.length === 0) {
-        hasMore = false;
-        break;
-      }
-
-      issues.push(...data.items.map((item: any) => ({
-        id: item.id,
-        title: item.title,
-        number: item.number,
-        state: item.state,
-        createdAt: item.created_at,
-        updatedAt: item.updated_at,
-        url: item.html_url,
-        repository: {
-          nameWithOwner: item.repository.full_name,
-        },
-        type: item.pull_request ? 'pr' : 'issue',
-      })));
-
-      hasMore = data.items.length === 100;
-      page++;
+      hasMore = true;
+      page = 1;
     }
 
     return { data: issues };
@@ -189,7 +211,7 @@ export async function fetchUserIssuesAndPRs(accessToken: string, since: string):
   }
 }
 
-export async function fetchUserContributions(accessToken: string, since: string): Promise<GitHubResponse<{
+export async function fetchUserContributions(accessToken: string, since: string, includePrivate: boolean = false): Promise<GitHubResponse<{
   commits: EnrichedCommit[];
   issues: IssueOrPR[];
   repositories: string[];
@@ -202,10 +224,25 @@ export async function fetchUserContributions(accessToken: string, since: string)
     }
     const username = profileResponse.data.login;
 
+    // Check if we have the necessary scopes for private repos
+    if (includePrivate) {
+      const scopeResponse = await fetch('https://api.github.com/user', {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/vnd.github.v3+json',
+        },
+      });
+      
+      const scopes = scopeResponse.headers.get('x-oauth-scopes');
+      if (!scopes?.includes('repo')) {
+        throw new Error('Private repository access requires additional authorization. Please sign out and sign in again with the correct permissions.');
+      }
+    }
+
     const [reposResponse, commitsResponse, issuesResponse] = await Promise.all([
-      fetchUserRepos(accessToken, since),
-      fetchUserCommits(accessToken, since),
-      fetchUserIssuesAndPRs(accessToken, since),
+      fetchUserRepos(accessToken, since, includePrivate),
+      fetchUserCommits(accessToken, since, includePrivate),
+      fetchUserIssuesAndPRs(accessToken, since, includePrivate),
     ]);
 
     if (reposResponse.error) throw new Error(reposResponse.error);
